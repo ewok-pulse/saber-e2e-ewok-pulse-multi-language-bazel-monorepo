@@ -1,0 +1,75 @@
+name: Endor Labs Scan
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      security-events: write
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Set up Bazelisk
+      uses: bazelbuild/setup-bazelisk@v3
+    - name: Cache Bazel build outputs
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/bazel
+          ~/.cache/bazelisk
+        key: ${{ runner.os }}-bazel-${{ hashFiles('**/MODULE.bazel', '**/MODULE.bazel.lock', '**/WORKSPACE', '**/WORKSPACE.bazel', '**/.bazelversion') }}
+        restore-keys: |
+          ${{ runner.os }}-bazel-
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.11"
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: "1.18"
+    - name: Endor Labs PR Scan
+      if: github.event_name == 'pull_request'
+      uses: endorlabs/github-action@b8992820cc4d9c9e7ded5022adf6cabe2dc11946
+      timeout-minutes: 30
+      with:
+        namespace: "endor-solutions-ypulse.github-ci.saber-e2e"
+        scan_dependencies: true
+        scan_secrets: false
+        pr: true
+        pr_incremental: true
+        enable_pr_comments: true
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        enable_github_action_token: true
+        use_bazel: true
+        bazel_targets_query: 'kind("go_binary", //projects/...) + kind("go_library", //projects/...) + kind("java_binary", //projects/...) + kind("java_library", //projects/...) + kind("js_binary", //projects/...) + kind("js_library", //projects/...) + kind("py_binary", //projects/...) + kind("py_library", //projects/...)'
+        additional_args: "--quick-scan --disable-private-package-analysis"
+        scan_summary_output_type: "table"
+        sarif_file: findings.sarif
+    - name: Endor Labs Monitor Scan
+      if: github.event_name == 'push'
+      uses: endorlabs/github-action@b8992820cc4d9c9e7ded5022adf6cabe2dc11946
+      timeout-minutes: 30
+      with:
+        namespace: "endor-solutions-ypulse.github-ci.saber-e2e"
+        scan_dependencies: true
+        scan_secrets: false
+        pr: false
+        enable_github_action_token: true
+        use_bazel: true
+        bazel_targets_query: 'kind("go_binary", //projects/...) + kind("go_library", //projects/...) + kind("java_binary", //projects/...) + kind("java_library", //projects/...) + kind("js_binary", //projects/...) + kind("js_library", //projects/...) + kind("py_binary", //projects/...) + kind("py_library", //projects/...)'
+        additional_args: "--use-bazel-aspects --disable-private-package-analysis"
+        sarif_file: findings.sarif
+    - name: Upload SARIF
+      if: always()
+      uses: github/codeql-action/upload-sarif@v4
+      continue-on-error: true
+      with:
+        sarif_file: findings.sarif
